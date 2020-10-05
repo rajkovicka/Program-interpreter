@@ -1,0 +1,244 @@
+
+package rs.ac.bg.etf.pp1;
+
+import java_cup.runtime.*;
+import org.apache.log4j.*;
+import rs.ac.bg.etf.pp1.ast.*;
+
+parser code {:
+	
+	Logger log = Logger.getLogger(getClass());
+	
+	// redefined methods for changing the text of the error messages
+	
+	public void report_fatal_error(String message, Object info) throws java.lang.Exception {
+		done_parsing();
+		report_error(message, info);
+	}
+	
+	public void syntax_error(Symbol curr_token) {
+		report_error("\n Syntax error ", curr_token);
+	}
+	
+	public void unrecovered_syntax_error(Symbol curr_token) throws java.lang.Exception {
+		report_fatal_error("Fatal error, parsing can't be continued", curr_token);
+	}
+	
+	public void report_error(String message, Object info) {
+		StringBuilder msg = new StringBuilder(message);
+		if(info instanceof Symbol)
+			msg.append(" on line ").append(((Symbol)info).left);
+		log.error(msg.toString());
+	}
+	
+:}
+
+scan with {:
+	
+	Symbol s = this.getScanner().next_token();
+	if(s != null && s.value != null)
+		log,info(s.toString() + " " + s.value.toString());
+	return s;
+	
+:}
+
+terminal PROG, RETURN, PRINT, READ, NEW, VOID, CONST;
+terminal LBRACE, RBRACE, LBRACKET, RBRACKET, LPAREN, RPAREN, SEMI, COMMA;
+terminal EQUAL, PLUS, TIMES, DIV, MINUS, MOD, INC, DEC;
+terminal PLUSEQUAL, TIMESEQUAL, DIVEQUAL, MINUSEQUAL, MODEQUAL;
+terminal Integer NUMBER;
+terminal String IDENT;
+terminal Character CHARACTERS;
+terminal String BOOLEAN;
+
+nonterminal ConstDeclList, ConstLine, ConstDeclarations, ConstDecl;
+nonterminal VarDeclList, VarLine, VarDeclarations, VarDecl;
+nonterminal MethodDeclList, MethodDecl;
+nonterminal StatementList, Statement;
+nonterminal DesignatorStatement;
+nonterminal Assignop, Addop, AddopLeft, AddopRight, Mulop, MulopLeft, MulopRight;
+nonterminal MethodInitialization;
+nonterminal DummyExprFlag;
+nonterminal DesignatorHelp;
+
+nonterminal rs.etf.pp1.symboltable.concepts.Obj Program, ProgramName, ConstValue, ReturnTypeName, Designator, AssignmentStatement;
+nonterminal rs.etf.pp1.symboltable.concepts.Struct Type, Factor, Expr, Term, TermList;
+
+Program ::=	(Program) PROG ProgramName:programName ConstDeclList VarDeclList LBRACE MethodDeclList RBRACE;
+
+ProgramName ::=	(ProgramName) IDENT:programName;
+
+ConstDeclList ::=	(ConstantsDecl) ConstDeclList ConstLine
+					|
+					(NoConstantsDecl) /* epsilon */
+					;
+					
+ConstLine ::=	(ConstLine) CONST Type:constType ConstDeclarations SEMI;
+
+ConstDeclarations ::=	(MultipleConstDeclarations) ConstDeclarations COMMA ConstDecl
+						|
+						(SingleConstDeclarations) ConstDecl
+						;
+						
+ConstDecl ::=	(ConstDecl) IDENT:constantName EQUAL ConstValue;
+				
+ConstValue ::=	(NumberConstant) NUMBER:numConst
+				|
+				(CharConstant) CHARACTERS:charConst
+				|
+				(BooleanConstant) BOOLEAN:boolConst
+				;
+
+VarDeclList ::=	(VarsDecl) VarDeclList VarLine
+				|
+				(NoVarDecl) /* epsilon */
+				;
+				
+VarLine ::=	(VarLine) Type:varType VarDeclarations SEMI;
+
+VarDeclarations ::=	(MultipleVarDeclarations) VarDeclarations COMMA VarDecl
+					|
+					(SingleVarDeclaration) VarDecl
+					;
+					
+VarDecl ::=	(VarDeclaration) IDENT:varName
+			|
+			(VarArrayDeclaration) IDENT:varName LBRACKET RBRACKET
+			|
+			(VarError) error:e
+        	{: parser.report_info("Variable declaration error recovery on line " + eleft, null); :} 
+			;
+			
+Type ::=	(Type) IDENT:typeName;
+
+MethodDeclList ::=	(MethodDeclarations) MethodDeclList MethodDecl
+					|
+					(NoMethodDeclarations) /* epsilon */
+					;
+					
+MethodDecl ::=	(MethodDeclaration) MethodInitialization VarDeclList LBRACE StatementList RBRACE;
+
+ReturnTypeName ::=	(VoidReturn) VOID IDENT:methodName
+					|
+					(NonVoidReturn) Type IDENT:methodName
+					;
+				
+MethodInitialization ::=	(MethodInitialization) ReturnTypeName LPAREN RPAREN;
+				
+StatementList ::=	(Statements) StatementList Statement
+					|
+					(NoStatements) /* epsilon */
+					;
+					
+Statement ::=	(ReadStatement) READ LPAREN Designator RPAREN SEMI
+				|
+				(PrintStatement) PRINT LPAREN Expr RPAREN SEMI
+				|
+				(PrintStatementWithNumber) PRINT LPAREN Expr COMMA NUMBER RPAREN SEMI
+				|
+				(DesignatorStmt) DesignatorStatement SEMI
+				|
+				(ReturnEmptyStatement) RETURN SEMI
+				|
+				(ReturnExprStatement) RETURN Expr:returnExpr SEMI
+				;
+									
+DesignatorStatement ::=	(AssignDesignatorStatement) AssignmentStatement
+						|
+						(IncrementDesignatorStatement) Designator INC
+						|
+						(DecrementDesignatorStatement) Designator DEC
+						|
+						(AfterAssignDesignatorStatement) Designator Assignop error:e
+						{: parser.report_info("Assign statement error recovery on line " + eleft, null); :}
+						|
+						(BeforeAssignDesignatorStatement) Designator error:e
+						{: parser.report_info("Assign statement error recovery on line " + eleft, null); :}		
+						;
+						
+AssignmentStatement ::=	(AssignmentStatement) Designator Assignop Expr;
+						
+Expr ::= (Expr) DummyExprFlag TermList;
+
+DummyExprFlag ::= (DummyExprFlag);
+						
+TermList ::=	(MultipleTerms) TermList Addop Term
+				|
+				(SingleTerm) Term
+				|
+				(NegativeSingleTerm) MINUS Term
+				;
+				
+Term ::=	(MultipleFactors) Term Mulop Factor
+			|
+			(SingleFactor) Factor
+			;
+			
+			
+				
+Factor ::=	(NumberFactor) NUMBER:factorValue
+			|
+			(CharacterFactor) CHARACTERS:factorValue
+			|
+			(BooleanFactor) BOOLEAN:factorValue
+			|
+			(ExpressionFactor) LPAREN Expr RPAREN
+			|
+			(DesignatorFactor) Designator
+			|
+			(FuncCallFactor) Designator LPAREN RPAREN
+			|
+			(NewDesignatorFactor) NEW Type
+			|
+			(NewDesignatorArrayFactor) NEW Type LBRACKET Expr:expression RBRACKET
+			;
+						
+Designator ::=	(NonArrayDesignator) IDENT:designatorName
+				|
+				(ArrayDesignator) DesignatorHelp Expr RBRACKET
+				;
+				
+DesignatorHelp ::=	(DesignatorHelp) Designator LBRACKET;
+						
+Assignop ::=	(AssignEqual) EQUAL
+				|
+				(AssignAddopRight) AddopRight
+				|
+				(AssignMulopRight) MulopRight
+				;
+						
+Addop ::=	(AddLeftOp) AddopLeft
+			|
+			(AddRightOp) AddopRight
+			;
+			
+AddopLeft ::=	(PlusOp) PLUS
+				|
+				(MinusOp) MINUS
+				;
+				
+AddopRight ::=	(PlusEqualOp) PLUSEQUAL
+				|
+				(MinusEqualOp) MINUSEQUAL
+				;
+			
+Mulop ::=	(MulLeftOp) MulopLeft
+			|
+			(MulRightOp) MulopRight
+			;
+			
+MulopLeft ::=	(TimesOp) TIMES
+				|
+				(DivOp) DIV
+				|
+				(ModOp) MOD
+				;
+			
+MulopRight ::=	(TimesEqualOp) TIMESEQUAL
+				|
+				(DivEqualOp) DIVEQUAL
+				|
+				(ModEqualOp) MODEQUAL
+				;
+
+
